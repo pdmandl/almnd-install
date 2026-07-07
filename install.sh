@@ -13,7 +13,7 @@ SCOPE="@pdmandl"
 PACKAGE="@pdmandl/almnd"
 REGISTRY="npm.pkg.github.com"
 REPO="pdmandl/almnd-wrapper"
-OWNER_EMAIL="paul.mandl@findustrial.io"
+OWNER_EMAIL="p.d.mandl@gmail.com"
 NPMRC="$HOME/.npmrc"
 
 bold() { printf '\033[1m%s\033[0m\n' "$1"; }
