@@ -3,7 +3,7 @@
 Public installer for the private [`@pdmandl/almnd`](https://github.com/pdmandl/almnd-wrapper) package.
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/pdmandl/almnd-install/main/install.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/pdmandl/almnd-install/master/install.sh)
 ```
 
 Requires [Node 18+](https://nodejs.org) and the [GitHub CLI](https://cli.github.com).
