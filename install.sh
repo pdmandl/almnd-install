@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 #
 # almnd installer. Sets up access to the private @pdmandl/almnd package on
-# GitHub Packages and installs it globally. If you don't have access yet, it
-# helps you request it — you shouldn't need to do anything else by hand.
+# GitHub Packages and installs it globally. Paste a GitHub token when prompted,
+# or (if the GitHub CLI is installed) press Enter to let it fetch one for you.
+# If you don't have access to the package yet, it helps you request it.
 #
 #   curl -fsSL <this-url>/install.sh | bash
 #   # or: bash install.sh
@@ -24,19 +25,42 @@ die()  { printf '\033[31m✖ %s\033[0m\n' "$1" >&2; exit 1; }
 # --- prerequisites ---------------------------------------------------------
 command -v node >/dev/null 2>&1 || die "Node.js 18+ is required — https://nodejs.org"
 command -v npm  >/dev/null 2>&1 || die "npm is required (ships with Node.js)"
-command -v gh   >/dev/null 2>&1 || die "GitHub CLI (gh) is required — https://cli.github.com"
+command -v curl >/dev/null 2>&1 || die "curl is required"
 
-# --- authenticate with GitHub ---------------------------------------------
-if ! gh auth status >/dev/null 2>&1; then
-  bold "Signing in to GitHub…"
-  gh auth login
+# --- obtain a GitHub token (read:packages) --------------------------------
+# Priority: GITHUB_TOKEN env var → token pasted at the prompt → GitHub CLI.
+# TOKEN_SRC records where it came from so the retry logic below knows whether
+# a gh scope refresh could help.
+TOKEN="${GITHUB_TOKEN:-}"
+TOKEN_SRC="env"
+if [ -z "$TOKEN" ]; then
+  bold "A GitHub token with the 'read:packages' scope is needed to install ${PACKAGE}."
+  echo  "Create one at: https://github.com/settings/tokens/new?scopes=read:packages&description=almnd"
+  if command -v gh >/dev/null 2>&1; then
+    printf 'Paste a token (input hidden), or press Enter to use the GitHub CLI: '
+  else
+    printf 'Paste your token (input hidden): '
+  fi
+  read -rs TOKEN </dev/tty || TOKEN=""
+  echo
+  TOKEN_SRC="input"
+  if [ -z "$TOKEN" ]; then
+    command -v gh >/dev/null 2>&1 || die "No token entered."
+    gh auth status >/dev/null 2>&1 || gh auth login
+    gh auth refresh -h github.com -s read:packages >/dev/null 2>&1 || true
+    TOKEN="$(gh auth token)"
+    TOKEN_SRC="gh"
+  fi
 fi
-USERNAME="$(gh api user --jq .login 2>/dev/null || echo "unknown")"
-ok "Authenticated as $USERNAME"
+[ -n "$TOKEN" ] || die "No token available."
+
+# --- identify the account (best-effort, for access requests) --------------
+USERNAME="$(curl -fsSL -H "Authorization: Bearer $TOKEN" https://api.github.com/user 2>/dev/null \
+  | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{process.stdout.write(String(JSON.parse(s).login||""))}catch{}})' || true)"
+if [ -n "$USERNAME" ]; then ok "Authenticated as $USERNAME"; else USERNAME="unknown"; warn "Token accepted (couldn't read your username)"; fi
 
 # --- write the npm config for the @pdmandl scope --------------------------
-# Reads the token from gh so no PAT has to be created by hand. Idempotent:
-# strip any prior entries for this scope/registry before re-adding them.
+# Idempotent: strip any prior entries for this scope/registry before re-adding.
 write_npmrc() {
   local token="$1"
   touch "$NPMRC"
@@ -48,7 +72,7 @@ write_npmrc() {
   } >> "$NPMRC"
 }
 
-write_npmrc "$(gh auth token)"
+write_npmrc "$TOKEN"
 ok "Configured $NPMRC for $SCOPE"
 
 # --- try to install --------------------------------------------------------
@@ -60,17 +84,20 @@ if attempt_install; then
   exit 0
 fi
 
-# First failure is often a missing read:packages scope on the gh token — add it and retry once.
-warn "Install failed — refreshing GitHub permissions and retrying…"
-gh auth refresh -h github.com -s read:packages >/dev/null 2>&1 || true
-write_npmrc "$(gh auth token)"
-if attempt_install; then
-  ok "Installed. Try: almnd --version"
-  exit 0
+# If the token came from gh, a missing read:packages scope is a likely cause —
+# add it and retry once. (A pasted/env token can't be refreshed this way.)
+if [ "$TOKEN_SRC" = "gh" ]; then
+  warn "Install failed — adding the read:packages scope and retrying…"
+  gh auth refresh -h github.com -s read:packages >/dev/null 2>&1 || true
+  write_npmrc "$(gh auth token)"
+  if attempt_install; then
+    ok "Installed. Try: almnd --version"
+    exit 0
+  fi
 fi
 
-# --- still failing: you probably don't have access to the package ---------
-warn "Couldn't install $PACKAGE. You most likely don't have access yet."
+# --- still failing: bad token or no access to the package -----------------
+warn "Couldn't install $PACKAGE. Your token may lack the 'read:packages' scope, or you don't have access to the package yet."
 echo
 printf '%s' "Request access now (opens/prepares an email to the maintainer)? [Y/n] "
 read -r ans </dev/tty || ans="y"
