@@ -54,7 +54,7 @@ ok "Configured $NPMRC for $SCOPE"
 # --- try to install --------------------------------------------------------
 attempt_install() { npm install -g "$PACKAGE" >/tmp/almnd-install.log 2>&1; }
 
-bold "Installing $PACKAGE…"
+bold "Installing ${PACKAGE}..."
 if attempt_install; then
   ok "Installed. Try: almnd --version"
   exit 0
